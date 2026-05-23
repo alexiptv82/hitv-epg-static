@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "updatedAt": "2026-05-23T00:00:00Z",
+  "telegramUrl": "",
+  "messages": [
+    {
+      "id": "welcome-001",
+      "title": "Benvenuto negli Avvisi",
+      "body": "Da questa sezione riceverai comunicazioni importanti, aggiornamenti e informazioni sul servizio.",
+      "date": "2026-05-23",
+      "priority": "normal",
+      "active": true
+    },
+    {
+      "id": "maintenance-001",
+      "title": "Manutenzione programmata",
+      "body": "In caso di manutenzione o problemi temporanei, troverai qui gli aggiornamenti ufficiali.",
+      "date": "2026-05-23",
+      "priority": "important",
+      "active": true
+    }
+  ]
+}
