@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "updatedAt": "2026-05-23T00:00:00Z",
+  "epg": {
+    "staticEnabled": true,
+    "backendEnabled": true,
+    "lkgEnabled": true,
+    "staticMaxAgeMinutes": 90,
+    "lkgTtlHours": 12
+  },
+  "logos": {
+    "xmltvEnabled": true,
+    "streamIconEnabled": true,
+    "blockUnsafeBroadcasterMismatch": true,
+    "logoOverrides": {
+      "supertennisfhd": "https://i.postimg.cc/Pf9DnL6p/suertennis1.png",
+      "supertennis": "https://i.postimg.cc/Pf9DnL6p/suertennis1.png"
+    },
+    "channelAliases": {
+      "supertennis": ["suertennis", "super tennis"],
+      "supertennisfhd": ["suertennis1", "super tennis fhd"]
+    },
+    "blockedLogoTokens": [
+      "rai1",
+      "rai2",
+      "rai3",
+      "raitre",
+      "canale5",
+      "italia1",
+      "rete4",
+      "mediaset"
+    ]
+  },
+  "debug": {
+    "epgLogsEnabled": false,
+    "logoLogsEnabled": false
+  }
+}
