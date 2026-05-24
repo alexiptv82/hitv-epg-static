@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-23T00:00:00Z",
+  "updatedAt": "2026-05-24T00:00:00Z",
   "epg": {
     "staticEnabled": true,
     "backendEnabled": true,
@@ -20,16 +20,7 @@
       "supertennis": ["suertennis", "super tennis"],
       "supertennisfhd": ["suertennis1", "super tennis fhd"]
     },
-    "blockedLogoTokens": [
-      "rai1",
-      "rai2",
-      "rai3",
-      "raitre",
-      "canale5",
-      "italia1",
-      "rete4",
-      "mediaset"
-    ]
+    "blockedLogoTokens": []
   },
   "debug": {
     "epgLogsEnabled": false,
