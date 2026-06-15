@@ -4,13 +4,14 @@
   "telegramUrl": "",
   "messages": [
     {
-      "id": "welcome-001",
-      "title": "Benvenuto negli Avvisi",
-      "body": "Da questa sezione riceverai comunicazioni importanti, aggiornamenti e informazioni sul servizio.",
-      "date": "2026-05-23",
-      "priority": "normal",
-      "active": true
-    },
+      {
+  "id": "test-popup-20260615-001",
+  "title": "Test popup Avvisi",
+  "body": "Questo messaggio serve per verificare il popup degli Avvisi non letti nella Home.",
+  "date": "2026-06-15",
+  "priority": "important",
+  "active": true
+}
     {
       "id": "maintenance-001",
       "title": "Manutenzione programmata",
