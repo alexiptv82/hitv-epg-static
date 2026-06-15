@@ -1,23 +1,23 @@
 {
-"version": 1,
-"updatedAt": "2026-06-15T00:00:00Z",
-"telegramUrl": "",
-"messages": [
-{
-"id": "test-popup-20260615-001",
-"title": "Test popup Avvisi",
-"body": "Questo messaggio serve per verificare il popup degli Avvisi non letti nella Home.",
-"date": "2026-06-15",
-"priority": "important",
-"active": true
-},
-{
-"id": "maintenance-001",
-"title": "Manutenzione programmata",
-"body": "In caso di manutenzione o problemi temporanei, troverai qui gli aggiornamenti ufficiali.",
-"date": "2026-05-23",
-"priority": "important",
-"active": true
-}
-]
+  "version": 1,
+  "updatedAt": "2026-06-15T00:00:00Z",
+  "telegramUrl": "",
+  "messages": [
+    {
+      "id": "test-popup-20260615-001",
+      "title": "Test popup Avvisi",
+      "body": "Questo messaggio serve per verificare il popup degli Avvisi non letti nella Home.",
+      "date": "2026-06-15",
+      "priority": "important",
+      "active": true
+    },
+    {
+      "id": "maintenance-001",
+      "title": "Manutenzione programmata",
+      "body": "In caso di manutenzione o problemi temporanei, troverai qui gli aggiornamenti ufficiali.",
+      "date": "2026-05-23",
+      "priority": "important",
+      "active": true
+    }
+  ]
 }
