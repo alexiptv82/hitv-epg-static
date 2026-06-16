@@ -5,8 +5,8 @@
   "messages": [
 {
   "id": "test-popup-20260615-002",
-  "title": "Avviso",
-  "body": "Benvenuto.",
+  "title": " Test Avviso",
+  "body": "Benvenuto nella mia piattaforma.",
   "date": "2026-06-15",
   "priority": "important",
   "active": true
