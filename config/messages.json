@@ -4,9 +4,9 @@
   "telegramUrl": "",
   "messages": [
 {
-  "id": "test-popup-v1",
-  "title": " Test v4",
-  "body": "Benvenuto!!.",
+  "id": "test-popup-v2",
+  "title": " Messaggio",
+  "body": "Benvenuto su HiTV PRIME V2!!.",
   "date": "2026-06-15",
   "priority": "important",
   "active": true
