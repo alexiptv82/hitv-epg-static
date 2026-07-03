@@ -1,0 +1,403 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+
+MAX_GENERATED_AGE_SEC = 2 * 60 * 60
+MIN_FUTURE_COVERAGE_SEC = 18 * 60 * 60
+PREFERRED_FUTURE_COVERAGE_SEC = 24 * 60 * 60
+
+MIN_CHANNELS_TOTAL = 1700
+MIN_CURRENT_NEXT_COVERAGE_RATIO = 0.75
+MIN_PROGRAMMES_TOTAL = 100000
+
+HARD_MIN_DETAILED_CHANNEL_RATIO = 0.55
+IDEAL_MIN_DETAILED_CHANNEL_RATIO = 0.70
+DETAILED_MIN_PROGRAMMES_PER_CHANNEL = 10
+
+MIN_PREMIUM_CHANNELS = 700
+PREMIUM_MIN_PROGRAMMES_PER_CHANNEL = 50
+
+MIN_SOURCES_OK = 3
+WORKHORSE_FRAGMENT = "epg-guide.com"
+
+MIN_SAMPLE_FUTURE_PROGRAMMES = 10
+
+CRITICAL_SAMPLE_CHANNELS = {
+    "Rai 1": ["Rai1", "Rai 1", "Rai 1 HD", "Rai 1.it", "Rai.1.it"],
+    "Rai 2": ["Rai2", "Rai 2", "Rai 2 HD", "Rai 2.it", "Rai.2.it"],
+    "Rai 3": ["Rai3", "Rai 3", "Rai 3 HD", "Rai 3.it", "Rai.3.it"],
+    "Canale 5": ["Canale 5", "Canale5", "Canale 5 HD", "Canale.5.it"],
+    "Italia 1": ["Italia 1", "Italia1", "Italia 1 HD", "Italia.1.it"],
+    "Rete 4": ["Rete 4", "Rete4", "Rete 4 HD", "Rete.4.it"],
+    "La7": ["La 7", "La7", "La 7 HD", "La.7.it"],
+    "TV8": ["TV 8", "TV8", "TV 8 HD", "TV.8.it"],
+    "Nove": ["Nove", "Nove HD", "NOVE", "Nove.it"],
+}
+
+EXTRA_SAMPLE_CHANNELS = {
+    "Rai 4": ["Rai 4", "Rai4", "Rai 4 HD", "Rai.4.it"],
+    "Rai Movie": ["Rai Movie", "RaiMovie", "Rai Movie HD", "Rai.Movie.it"],
+    "Rai Premium": ["Rai Premium", "RaiPremium", "Rai Premium HD"],
+    "Iris": ["Iris", "Iris HD", "Iris HD.it", "Iris.it"],
+    "Cine34": ["Cine34", "Cine34.it", "Cine34 HD.it", "Cine 34"],
+    "Focus": ["Focus", "Focus HD.it", "Focus.it"],
+    "Top Crime": ["Top Crime", "TopCrime", "Top Crime HD", "TopCrime.it"],
+}
+
+
+def fail(message):
+    print("BLOCKED_PUBLISH: " + message)
+    sys.exit(1)
+
+
+def warn(warnings, message):
+    warnings.append(message)
+
+
+def load_json(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def norm(value):
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def get_generated_at(status):
+    value = status.get("generated_at")
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    value = status.get("generated_at_epoch")
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    fail("status.json generated_at missing or not numeric")
+
+
+def get_channels_total(channels):
+    items = channels.get("channels")
+    if isinstance(items, list):
+        return len(items)
+    if isinstance(items, dict):
+        return len(items)
+    fail("channels.json has no valid channels list or object")
+
+
+def get_current_next_coverage(current_next, channels_total):
+    items = current_next.get("channels")
+    if not isinstance(items, dict):
+        fail("current-next.json has no valid channels object")
+
+    covered = 0
+    for value in items.values():
+        if isinstance(value, dict) and (value.get("current") or value.get("next")):
+            covered += 1
+
+    ratio = covered / channels_total if channels_total else 0
+    return covered, ratio
+
+
+def get_program_channels(programs):
+    items = programs.get("channels")
+    if not isinstance(items, dict):
+        fail("programs.json has no valid channels object")
+    return items
+
+
+def build_program_index(program_channels):
+    index = {}
+
+    for channel_id, entry in program_channels.items():
+        if not isinstance(entry, dict):
+            continue
+
+        index[norm(channel_id)] = entry
+
+        display_name = entry.get("display_name")
+        if display_name:
+            index[norm(display_name)] = entry
+
+        names = entry.get("display_names")
+        if isinstance(names, list):
+            for name in names:
+                index[norm(name)] = entry
+
+    return index
+
+
+def count_future_programmes(entry, now_ts):
+    count = 0
+    programmes = entry.get("programmes", [])
+    if not isinstance(programmes, list):
+        return 0
+
+    for programme in programmes:
+        if not isinstance(programme, dict):
+            continue
+        stop_ts = programme.get("stop_ts")
+        if isinstance(stop_ts, (int, float)) and float(stop_ts) > now_ts:
+            count += 1
+
+    return count
+
+
+def best_sample_count(index, aliases, now_ts):
+    best_count = 0
+    best_alias = ""
+
+    for alias in aliases:
+        entry = index.get(norm(alias))
+        if not entry:
+            continue
+
+        count = count_future_programmes(entry, now_ts)
+        if count > best_count:
+            best_count = count
+            best_alias = alias
+
+    return best_count, best_alias
+
+
+def analyse_programmes(program_channels, channels_total, now_ts):
+    total_programmes = 0
+    detailed_channels = 0
+    premium_channels = 0
+    empty_channels = 0
+    future_programmes = 0
+    max_future_horizon = 0
+
+    for entry in program_channels.values():
+        if not isinstance(entry, dict):
+            continue
+
+        programmes = entry.get("programmes", [])
+        if not isinstance(programmes, list):
+            programmes = []
+
+        count = len(programmes)
+        total_programmes += count
+
+        if count == 0:
+            empty_channels += 1
+
+        if count >= DETAILED_MIN_PROGRAMMES_PER_CHANNEL:
+            detailed_channels += 1
+
+        if count >= PREMIUM_MIN_PROGRAMMES_PER_CHANNEL:
+            premium_channels += 1
+
+        for programme in programmes:
+            if not isinstance(programme, dict):
+                continue
+
+            stop_ts = programme.get("stop_ts")
+            if isinstance(stop_ts, (int, float)) and float(stop_ts) > now_ts:
+                future_programmes += 1
+                horizon = float(stop_ts) - now_ts
+                if horizon > max_future_horizon:
+                    max_future_horizon = horizon
+
+    detailed_ratio = detailed_channels / channels_total if channels_total else 0
+
+    return {
+        "total_programmes": total_programmes,
+        "detailed_channels": detailed_channels,
+        "premium_channels": premium_channels,
+        "empty_channels": empty_channels,
+        "future_programmes": future_programmes,
+        "max_future_horizon": max_future_horizon,
+        "detailed_ratio": detailed_ratio,
+    }
+
+
+def check_sources(status):
+    sources = status.get("sources", [])
+    if not isinstance(sources, list):
+        sources = []
+
+    ok_count = 0
+    workhorse_ok = False
+
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+
+        is_ok = bool(source.get("ok"))
+        url = str(source.get("url", ""))
+
+        if is_ok:
+            ok_count += 1
+
+        if WORKHORSE_FRAGMENT in url and is_ok:
+            workhorse_ok = True
+
+    if ok_count < MIN_SOURCES_OK:
+        fail(f"too few sources OK - sources_ok={ok_count}, min={MIN_SOURCES_OK}")
+
+    if not workhorse_ok:
+        fail(f"workhorse source missing or failed - expected fragment {WORKHORSE_FRAGMENT}")
+
+    return ok_count, len(sources), workhorse_ok
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("output_dir")
+    args = parser.parse_args()
+
+    root = args.output_dir
+    warnings = []
+    now_ts = time.time()
+
+    required = [
+        "status.json",
+        "channels.json",
+        "current-next.json",
+        "programs.json",
+    ]
+
+    for filename in required:
+        path = os.path.join(root, filename)
+        if not os.path.isfile(path):
+            fail(f"missing file {path}")
+        if os.path.getsize(path) <= 0:
+            fail(f"empty file {path}")
+
+    try:
+        status = load_json(os.path.join(root, "status.json"))
+        channels = load_json(os.path.join(root, "channels.json"))
+        current_next = load_json(os.path.join(root, "current-next.json"))
+        programs = load_json(os.path.join(root, "programs.json"))
+    except json.JSONDecodeError as exc:
+        fail(f"invalid JSON - {exc}")
+
+    generated_at = get_generated_at(status)
+    age = now_ts - generated_at
+
+    if age > MAX_GENERATED_AGE_SEC:
+        fail(f"generated_at too old - age={age / 60:.1f} min")
+
+    channels_total = get_channels_total(channels)
+    if channels_total < MIN_CHANNELS_TOTAL:
+        fail(f"channels_total below threshold - {channels_total} < {MIN_CHANNELS_TOTAL}")
+
+    current_next_covered, current_next_ratio = get_current_next_coverage(
+        current_next,
+        channels_total,
+    )
+
+    if current_next_ratio < MIN_CURRENT_NEXT_COVERAGE_RATIO:
+        fail(
+            "current-next coverage below threshold - "
+            f"{current_next_covered}/{channels_total} = {current_next_ratio * 100:.1f}%"
+        )
+
+    program_channels = get_program_channels(programs)
+    metrics = analyse_programmes(program_channels, channels_total, now_ts)
+
+    if metrics["max_future_horizon"] < MIN_FUTURE_COVERAGE_SEC:
+        fail(
+            "future coverage below threshold - "
+            f"{metrics['max_future_horizon'] / 3600:.1f}h < {MIN_FUTURE_COVERAGE_SEC / 3600:.0f}h"
+        )
+
+    if metrics["max_future_horizon"] < PREFERRED_FUTURE_COVERAGE_SEC:
+        warn(
+            warnings,
+            "future coverage below preferred 24h - "
+            f"{metrics['max_future_horizon'] / 3600:.1f}h",
+        )
+
+    if metrics["total_programmes"] < MIN_PROGRAMMES_TOTAL:
+        fail(
+            "programmes_total below threshold - "
+            f"{metrics['total_programmes']} < {MIN_PROGRAMMES_TOTAL}"
+        )
+
+    if metrics["detailed_ratio"] < HARD_MIN_DETAILED_CHANNEL_RATIO:
+        fail(
+            "detailed channel coverage below hard threshold - "
+            f"{metrics['detailed_ratio'] * 100:.1f}% < {HARD_MIN_DETAILED_CHANNEL_RATIO * 100:.0f}%"
+        )
+
+    if metrics["detailed_ratio"] < IDEAL_MIN_DETAILED_CHANNEL_RATIO:
+        warn(
+            warnings,
+            "detailed channel coverage below ideal - "
+            f"{metrics['detailed_ratio'] * 100:.1f}% "
+            f"(ideal {IDEAL_MIN_DETAILED_CHANNEL_RATIO * 100:.0f}%, "
+            f"hard minimum {HARD_MIN_DETAILED_CHANNEL_RATIO * 100:.0f}%). Publish allowed.",
+        )
+
+    if metrics["premium_channels"] < MIN_PREMIUM_CHANNELS:
+        fail(
+            "premium channel count below threshold - "
+            f"{metrics['premium_channels']} < {MIN_PREMIUM_CHANNELS}"
+        )
+
+    sources_ok, sources_total, workhorse_ok = check_sources(status)
+
+    index = build_program_index(program_channels)
+
+    sample_results = []
+
+    for name, aliases in CRITICAL_SAMPLE_CHANNELS.items():
+        count, alias = best_sample_count(index, aliases, now_ts)
+        sample_results.append((name, count, alias, True))
+        if count < MIN_SAMPLE_FUTURE_PROGRAMMES:
+            fail(
+                "critical FTA sample missing future data - "
+                f"{name} has {count}, min {MIN_SAMPLE_FUTURE_PROGRAMMES}"
+            )
+
+    for name, aliases in EXTRA_SAMPLE_CHANNELS.items():
+        count, alias = best_sample_count(index, aliases, now_ts)
+        sample_results.append((name, count, alias, False))
+        if count < MIN_SAMPLE_FUTURE_PROGRAMMES:
+            warn(
+                warnings,
+                f"extra FTA sample below preferred minimum - {name} has {count}",
+            )
+
+    print("EPG QUALITY GATE FIX1C - metrics report")
+    print(f"generated_at age: {age / 60:.1f} min")
+    print(f"channels_total: {channels_total}")
+    print(
+        "current_next_coverage: "
+        f"{current_next_covered}/{channels_total} = {current_next_ratio * 100:.1f}%"
+    )
+    print(f"programmes_total: {metrics['total_programmes']}")
+    print(
+        "detailed_channels: "
+        f"{metrics['detailed_channels']}/{channels_total} = {metrics['detailed_ratio'] * 100:.1f}%"
+    )
+    print(f"premium_channels: {metrics['premium_channels']}")
+    print(f"empty_channels: {metrics['empty_channels']}")
+    print(f"future_programmes: {metrics['future_programmes']}")
+    print(f"future_horizon: {metrics['max_future_horizon'] / 3600:.1f}h")
+    print(f"sources_ok: {sources_ok}/{sources_total}")
+    print(f"workhorse_ok: {workhorse_ok}")
+
+    print("sample_channels:")
+    for name, count, alias, critical in sample_results:
+        kind = "critical" if critical else "extra"
+        print(f"- {name}: {count} future programmes, alias={alias}, type={kind}")
+
+    if warnings:
+        print("EPG QUALITY GATE FIX1C: PASS_WITH_WARNINGS - safe to publish.")
+        for message in warnings:
+            print(f"WARNING: {message}")
+    else:
+        print("EPG QUALITY GATE FIX1C: PASS - safe to publish.")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
